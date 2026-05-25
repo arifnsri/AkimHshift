@@ -1,56 +1,82 @@
-from pynput import mouse, keyboard
+import ctypes
+import time
+import threading
 
-# Inisialisasi controller keyboard
-kb_controller = keyboard.Controller()
+# Load user32.dll untuk mengakses Windows API
+user32 = ctypes.windll.user32
 
-# Variabel status (True = Aktif, False = Nonaktif)
+# Definisi Virtual-Key Codes Microsoft
+VK_LBUTTON = 0x01  # Klik Kiri Mouse
+VK_LSHIFT = 0xA0   # Left Shift
+VK_9 = 0x39        # Angka 9
+
+# Konstanta untuk simulasi keyboard
+KEYEVENTF_KEYUP = 0x0002
+
+# Variabel Status (True = ON, False = OFF)
 is_active = True
+running = True
 
 print("=========================================")
-print("  PROGRAM TOGGLE: L-Click -> Left Shift  ")
+print("  WINDOWS VK-CODE: L-Click -> Left Shift ")
 print("  STATUS SAAT INI: [ AKTIF / ON ]        ")
 print("  Tekan angka 9 untuk ON / OFF program   ")
 print("=========================================")
 
-def on_click(x, y, button, pressed):
-    global is_active
-    
-    # Script hanya akan berjalan jika status is_active = True (ON)
-    if is_active and button == mouse.Button.left:
-        if pressed:
-            kb_controller.press(keyboard.Key.shift_left)
-            print("[INFO] Klik Kiri -> Left Shift [TERTEKAN]")
-        else:
-            kb_controller.release(keyboard.Key.shift_left)
-            print("[INFO] Klik Kiri -> Left Shift [DILEPAS]")
+def get_key_state(vk_code):
+    """Memeriksa apakah tombol sedang ditekan (state < 0)"""
+    return user32.GetAsyncKeyState(vk_code) & 0x8000
 
-def on_press(key):
-    global is_active
-    try:
-        # Memeriksa apakah user menekan tombol angka 9
-        if key.char == '9':
-            # Membalikkan status (Jika True jadi False, jika False jadi True)
+def toggle_logic():
+    global is_active, running
+    last_9_state = False
+    
+    while running:
+        # 1. Cek input tombol angka 9 untuk Toggle ON/OFF
+        current_9_state = bool(get_key_state(VK_9))
+        if current_9_state and not last_9_state:
             is_active = not is_active
-            
             print("\n-----------------------------------------")
             if is_active:
                 print("[STATUS] PROGRAM DIUBAH KE -> [ ON / AKTIF ]")
-                print("[INFO] Klik kiri akan otomatis menekan Shift.")
             else:
                 print("[STATUS] PROGRAM DIUBAH KE -> [ OFF / NON-AKTIF ]")
-                print("[INFO] Klik kiri kembali normal (Shift mati).")
+                # Pastikan melepas Shift jika program di-matikan saat klik ditahan
+                user32.keybd_event(VK_LSHIFT, 0, KEYEVENTF_KEYUP, 0)
             print("-----------------------------------------\n")
-            
-    except AttributeError:
-        # Mengabaikan tombol spesial (Ctrl, Alt, dll) agar tidak error
-        pass
+        last_9_state = current_9_state
+        
+        # Jeda kecil agar CPU tidak bekerja 100%
+        time.sleep(0.1)
 
-# Menjalankan listener mouse dan keyboard
-mouse_listener = mouse.Listener(on_click=on_click)
-keyboard_listener = keyboard.Listener(on_press=on_press)
+def main_loop():
+    global is_active, running
+    shift_pressed = False
+    
+    while running:
+        if is_active:
+            # 2. Cek apakah klik kiri mouse sedang ditekan
+            if get_key_state(VK_LBUTTON):
+                if not shift_pressed:
+                    # Tekan Left Shift menggunakan VK Code
+                    user32.keybd_event(VK_LSHIFT, 0, 0, 0)
+                    print("[VK_INFO] L-Click Aktif -> VK_LSHIFT Tertekan")
+                    shift_pressed = True
+            else:
+                if shift_pressed:
+                    # Lepas Left Shift menggunakan VK Code
+                    user32.keybd_event(VK_LSHIFT, 0, KEYEVENTF_KEYUP, 0)
+                    print("[VK_INFO] L-Click Lepas -> VK_LSHIFT Dilepas")
+                    shift_pressed = False
+                    
+        time.sleep(0.01) # Response time super cepat (10ms)
 
-mouse_listener.start()
-keyboard_listener.start()
+# Menjalankan toggle di thread terpisah agar pembacaan tombol 9 tidak mengganggu mouse
+toggle_thread = threading.Thread(target=toggle_logic, daemon=True)
+toggle_thread.start()
 
-# Menjaga CMD tetap terbuka tanpa menutup program
-keyboard_listener.join()
+# Jalankan loop utama
+try:
+    main_loop()
+except KeyboardInterrupt:
+    running = False
