@@ -1,0 +1,37 @@
+name: Build Python to EXE
+
+on:
+  push:
+    branches:
+      - main  # Menjalankan build setiap kali ada push ke branch 'main'
+  workflow_dispatch: # Memungkinkan kamu menjalankan build secara manual
+
+jobs:
+  build:
+    runs-on: windows-latest # Wajib menggunakan Windows karena kita ingin hasil .exe
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10' # Versi Python yang digunakan
+
+    - name: Install Dependencies
+      run: |
+        python -m pip upgrade pip
+        pip install pynput pyinstaller
+
+    - name: Build EXE with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed rblxshift.py
+        # --onefile: Menjadikan satu file .exe tunggal
+        # --windowed: Menyembunyikan konsol hitam saat aplikasi berjalan (opsional)
+
+    - name: Upload EXE to Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Click-to-Shift-EXE
+        path: dist/main.exe
