@@ -2,80 +2,105 @@ import ctypes
 import time
 import threading
 
-# Load user32.dll untuk mengakses Windows API
-user32 = ctypes.windll.user32
+# Mengatur struktur data untuk SendInput (Hardware Level)
+LONG = ctypes.c_long
+DWORD = ctypes.c_ulong
+ULONG_PTR = ctypes.POINTER(ctypes.c_ulong)
+WORD = ctypes.c_ushort
 
-# Definisi Virtual-Key Codes Microsoft
-VK_LBUTTON = 0x01  # Klik Kiri Mouse
-VK_LSHIFT = 0xA0   # Left Shift
-VK_9 = 0x39        # Angka 9
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", WORD),
+        ("wScan", WORD),
+        ("dwFlags", DWORD),
+        ("time", DWORD),
+        ("dwExtraInfo", ULONG_PTR)
+    ]
 
-# Konstanta untuk simulasi keyboard
+class INPUT(ctypes.Structure):
+    class _INPUT(ctypes.Union):
+        _fields_ = [("ki", KEYBDINPUT)]
+    _fields_ = [("type", DWORD), ("_input", _INPUT)]
+
+# Konstanta Windows API
+INPUT_KEYBOARD = 1
+KEYEVENTF_SCANCODE = 0x0008
 KEYEVENTF_KEYUP = 0x0002
 
-# Variabel Status (True = ON, False = OFF)
+# Scancode untuk Left Shift (Lebih aman dari VK Code untuk game)
+SCAN_LSHIFT = 0x2A 
+
+# Virtual-Key Codes untuk deteksi
+VK_LBUTTON = 0x01
+VK_9 = 0x39
+
+user32 = ctypes.windll.user32
 is_active = True
 running = True
 
 print("=========================================")
-print("  WINDOWS VK-CODE: L-Click -> Left Shift ")
+print("  ROBLOX HARDWARE INPUT (SendInput)      ")
 print("  STATUS SAAT INI: [ AKTIF / ON ]        ")
 print("  Tekan angka 9 untuk ON / OFF program   ")
 print("=========================================")
 
+def press_shift_hardware():
+    """Mengirim sinyal tekan Shift tingkat hardware"""
+    extra = ctypes.c_ulong(0)
+    ii_ = INPUT._INPUT()
+    ii_.ki = KEYBDINPUT(0, SCAN_LSHIFT, KEYEVENTF_SCANCODE, 0, ctypes.pointer(extra))
+    x = INPUT(INPUT_KEYBOARD, ii_)
+    user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
+def release_shift_hardware():
+    """Mengirim sinyal lepas Shift tingkat hardware"""
+    extra = ctypes.c_ulong(0)
+    ii_ = INPUT._INPUT()
+    ii_.ki = KEYBDINPUT(0, SCAN_LSHIFT, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
+    x = INPUT(INPUT_KEYBOARD, ii_)
+    user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+
 def get_key_state(vk_code):
-    """Memeriksa apakah tombol sedang ditekan (state < 0)"""
     return user32.GetAsyncKeyState(vk_code) & 0x8000
 
 def toggle_logic():
     global is_active, running
     last_9_state = False
-    
     while running:
-        # 1. Cek input tombol angka 9 untuk Toggle ON/OFF
         current_9_state = bool(get_key_state(VK_9))
         if current_9_state and not last_9_state:
             is_active = not is_active
             print("\n-----------------------------------------")
             if is_active:
-                print("[STATUS] PROGRAM DIUBAH KE -> [ ON / AKTIF ]")
+                print("[STATUS] PROGRAM -> [ ON / AKTIF ]")
             else:
-                print("[STATUS] PROGRAM DIUBAH KE -> [ OFF / NON-AKTIF ]")
-                # Pastikan melepas Shift jika program di-matikan saat klik ditahan
-                user32.keybd_event(VK_LSHIFT, 0, KEYEVENTF_KEYUP, 0)
+                print("[STATUS] PROGRAM -> [ OFF / NON-AKTIF ]")
+                release_shift_hardware()
             print("-----------------------------------------\n")
         last_9_state = current_9_state
-        
-        # Jeda kecil agar CPU tidak bekerja 100%
         time.sleep(0.1)
 
 def main_loop():
     global is_active, running
     shift_pressed = False
-    
-    while running:
-        if is_active:
-            # 2. Cek apakah klik kiri mouse sedang ditekan
-            if get_key_state(VK_LBUTTON):
-                if not shift_pressed:
-                    # Tekan Left Shift menggunakan VK Code
-                    user32.keybd_event(VK_LSHIFT, 0, 0, 0)
-                    print("[VK_INFO] L-Click Aktif -> VK_LSHIFT Tertekan")
-                    shift_pressed = True
-            else:
-                if shift_pressed:
-                    # Lepas Left Shift menggunakan VK Code
-                    user32.keybd_event(VK_LSHIFT, 0, KEYEVENTF_KEYUP, 0)
-                    print("[VK_INFO] L-Click Lepas -> VK_LSHIFT Dilepas")
-                    shift_pressed = False
-                    
-        time.sleep(0.01) # Response time super cepat (10ms)
+    try:
+        while running:
+            if is_active:
+                if get_key_state(VK_LBUTTON):
+                    if not shift_pressed:
+                        press_shift_hardware()
+                        shift_pressed = True
+                else:
+                    if shift_pressed:
+                        release_shift_hardware()
+                        shift_pressed = False
+            time.sleep(0.01)
+    finally:
+        release_shift_hardware()
 
-# Menjalankan toggle di thread terpisah agar pembacaan tombol 9 tidak mengganggu mouse
 toggle_thread = threading.Thread(target=toggle_logic, daemon=True)
 toggle_thread.start()
 
-# Jalankan loop utama
 try:
     main_loop()
 except KeyboardInterrupt:
